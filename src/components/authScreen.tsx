@@ -28,49 +28,59 @@ export function AuthScreen() {
   }
 
   return (
-    <div className="mx-auto mt-24 max-w-sm space-y-4 p-6">
-      <h1 className="text-2xl font-bold">Habit Island</h1>
-      <form onSubmit={submit} className="space-y-3">
+    <main className="auth-shell">
+      <section className="auth-card">
+        <div className="auth-brand">
+          <span className="brand-mark" aria-hidden="true">🌿</span>
+          <h1 className="auth-title">Habit Island</h1>
+          <p className="auth-subtitle">Grow a little every day.</p>
+        </div>
+      <form onSubmit={submit} className="auth-form">
         {mode === 'signup' && (
           <input
-            className="w-full rounded border p-2"
-            placeholder="username"
+            className="habit-input"
+            placeholder="Username"
+            aria-label="Username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             required
           />
         )}
         <input
-          className="w-full rounded border p-2"
+          className="habit-input"
           type="email"
-          placeholder="email"
+          placeholder="Email address"
+          aria-label="Email address"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
         />
         <input
-          className="w-full rounded border p-2"
+          className="habit-input"
           type="password"
-          placeholder="password"
+          placeholder="Password"
+          aria-label="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
           minLength={6}
         />
         <button
-          className="w-full rounded bg-emerald-600 p-2 text-white disabled:opacity-50"
+          className="auth-submit"
           disabled={busy}
         >
           {busy ? '…' : mode === 'signup' ? 'Sign up' : 'Sign in'}
         </button>
       </form>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="auth-error" role="alert">{error}</p>}
       <button
-        className="text-sm text-emerald-700 underline"
+        className="auth-switch"
         onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
+        type="button"
       >
         {mode === 'signin' ? 'Need an account?' : 'Have an account?'}
       </button>
-    </div>
+      </section>
+    </main>
   )
 }

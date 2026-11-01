@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Habit, Completion } from '../types'
+import { Island } from './Island'
 
 export function Dashboard({ userId }: { userId: string }) {
   const [habits, setHabits] = useState<Habit[]>([])
@@ -8,34 +9,78 @@ export function Dashboard({ userId }: { userId: string }) {
   const [newHabitName, setNewHabitName] = useState('')
   const [loading, setLoading] = useState(true)
 
+  // Calculate growth based on habits completed today
+  const growthLevel = completions.length
+
   // Get today's date in YYYY-MM-DD format
   const today = new Date().toISOString().split('T')[0]
 
   useEffect(() => {
-    fetchData()
+    let isCurrent = true
+
+    async function loadData() {
+      const { data: habitsData } = await supabase
+        .from('habits')
+        .select('*')
+        .eq('user_id', userId)
+        .is('archived_at', null)
+        .order('created_at', { ascending: true })
+
+      const { data: completionsData } = await supabase
+        .from('completions')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('completed_on', today)
+
+      if (!isCurrent) return
+      if (habitsData) setHabits(habitsData as Habit[])
+      if (completionsData) setCompletions(completionsData as Completion[])
+      setLoading(false)
+    }
+
+    void loadData()
+    return () => {
+      isCurrent = false
+    }
+  }, [today, userId])
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'habits', filter: `user_id=eq.${userId}` },
+        (payload) => {
+          setHabits((prev) => {
+            if (prev.find((h) => h.id === payload.new.id)) return prev
+            return [...prev, payload.new as Habit]
+          })
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'completions', filter: `user_id=eq.${userId}` },
+        (payload) => {
+          setCompletions((prev) => {
+            const newCompletion = payload.new as Completion
+            if (prev.some((c) => c.id === newCompletion.id || c.habit_id === newCompletion.habit_id)) return prev
+            return [...prev, newCompletion]
+          })
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'completions', filter: `user_id=eq.${userId}` },
+        (payload) => {
+          setCompletions((prev) => prev.filter((c) => c.id !== payload.old.id))
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
   }, [userId])
-
-  async function fetchData() {
-    setLoading(true)
-    // Fetch active habits
-    const { data: habitsData } = await supabase
-      .from('habits')
-      .select('*')
-      .eq('user_id', userId)
-      .is('archived_at', null)
-      .order('created_at', { ascending: true })
-
-    // Fetch completions for today
-    const { data: completionsData } = await supabase
-      .from('completions')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('completed_on', today)
-
-    if (habitsData) setHabits(habitsData as Habit[])
-    if (completionsData) setCompletions(completionsData as Completion[])
-    setLoading(false)
-  }
 
   async function addHabit(e: React.FormEvent) {
     e.preventDefault()
@@ -50,21 +95,18 @@ export function Dashboard({ userId }: { userId: string }) {
     if (error) {
       alert(error.message)
     } else if (data) {
-      setHabits([...habits, data as Habit])
+      setHabits((prev) => [...prev, data as Habit])
       setNewHabitName('')
     }
   }
 
   async function toggleCompletion(habitId: string, isCompleted: boolean) {
-    // Optimistic UI update (makes it feel instant)
     if (isCompleted) {
-      setCompletions(completions.filter(c => c.habit_id !== habitId))
+      setCompletions((prev) => prev.filter((c) => c.habit_id !== habitId))
     } else {
-      // fake a completion object for the UI
-      setCompletions([...completions, { habit_id: habitId, completed_on: today } as Completion])
+      setCompletions((prev) => [...prev, { habit_id: habitId, completed_on: today } as Completion])
     }
 
-    // Actually talk to the database
     if (isCompleted) {
       await supabase
         .from('completions')
@@ -78,68 +120,93 @@ export function Dashboard({ userId }: { userId: string }) {
     }
   }
 
-  if (loading) return <div className="p-8">Loading habits...</div>
+  if (loading) {
+    return (
+      <div className="loading-screen">
+        <p className="loading-card">Loading your island…</p>
+      </div>
+    )
+  }
 
   return (
-    <div className="mx-auto max-w-md p-6 space-y-6">
-      <header className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-slate-800">Today</h1>
-        <button 
+    <main className="app-shell">
+      <header className="app-header">
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true">🌿</span>
+          <p className="brand-name">Habit Island</p>
+        </div>
+        <button
           onClick={() => supabase.auth.signOut()}
-          className="text-sm text-slate-500 hover:text-slate-800"
+          className="sign-out"
         >
           Sign out
         </button>
       </header>
 
-      {/* Habit List */}
-      <div className="space-y-3">
+      <section className="island-card" aria-labelledby="island-title">
+        <p className="eyebrow">A little better every day</p>
+        <h1 id="island-title" className="island-title">Your island is growing</h1>
+        <p className="island-subtitle">Keep showing up and watch your world bloom.</p>
+        <Island growthLevel={growthLevel} />
+      </section>
+
+      <section className="habits-panel" aria-labelledby="habits-title">
+        <div className="habits-heading">
+          <div>
+            <h2 id="habits-title" className="section-title">Today's habits</h2>
+            <p className="section-caption">Small steps make a big difference.</p>
+          </div>
+          <span className="completion-count">
+            {completions.length} / {habits.length} done
+          </span>
+        </div>
+        <div className="habit-list">
         {habits.length === 0 && (
-          <p className="text-slate-500 text-center py-4">No habits yet. Add one below!</p>
+          <p className="empty-state">Your island is waiting. Add your first habit below!</p>
         )}
-        
+
         {habits.map((habit) => {
           const isCompleted = completions.some((c) => c.habit_id === habit.id)
-          
+
           return (
-            <div 
-              key={habit.id} 
-              className="flex items-center gap-4 rounded-lg border p-4 bg-white shadow-sm"
+            <div
+              key={habit.id}
+              className={`habit-row${isCompleted ? ' is-completed' : ''}`}
             >
               <button
                 onClick={() => toggleCompletion(habit.id, isCompleted)}
-                className={`flex h-8 w-8 items-center justify-center rounded-full border-2 transition-colors ${
-                  isCompleted 
-                    ? 'bg-emerald-500 border-emerald-500 text-white' 
-                    : 'border-slate-300 text-transparent hover:border-emerald-500'
-                }`}
+                className="habit-check"
+                type="button"
+                aria-label={`${isCompleted ? 'Mark incomplete' : 'Complete'} ${habit.name}`}
+                aria-pressed={isCompleted}
               >
                 ✓
               </button>
-              <span className={`text-lg ${isCompleted ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
+              <span className="habit-name">
                 {habit.icon} {habit.name}
               </span>
             </div>
           )
         })}
-      </div>
+        </div>
 
-      {/* Add Habit Form */}
-      <form onSubmit={addHabit} className="flex gap-2 pt-4">
+      <form onSubmit={addHabit} className="add-habit-form">
         <input
           type="text"
           value={newHabitName}
           onChange={(e) => setNewHabitName(e.target.value)}
           placeholder="New habit (e.g. Read 10 pages)"
-          className="flex-1 rounded border p-2"
+          className="habit-input"
+          aria-label="New habit name"
         />
-        <button 
+        <button
           type="submit"
-          className="rounded bg-slate-800 px-4 py-2 text-white hover:bg-slate-700"
+          className="add-button"
         >
           Add
         </button>
       </form>
-    </div>
+      </section>
+    </main>
   )
 }
